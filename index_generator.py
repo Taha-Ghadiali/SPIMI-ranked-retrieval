@@ -79,7 +79,6 @@ def create_merged_index(blocks_dir, merge_index_output_path):
                 for elem in current_postings:
                     current_writer_line.append(int(elem[0]))
                     current_writer_line.append(elem[1])
-
             else:
                 if current_word == current_writer_line[0]:
                     if int(current_postings[0][0]) == current_writer_line[-2]:
@@ -107,10 +106,12 @@ def create_merged_index(blocks_dir, merge_index_output_path):
 def create_merged_weighted_index(merged_index_path, filenames_json_path, output_path):
     print("DEBUG: Started creation of merged weighted index")
 
-    with open(filenames_json_path, "r") as filenames_json:
+    with open(filenames_json_path, "r", encoding="utf-8") as filenames_json:
         filenames_len = len(json.load(filenames_json))
 
-    with open(merged_index_path, "r") as merged_index_file, open(output_path, "w") as output_file:
+    # ✅ force UTF-8 for both reading and writing
+    with open(merged_index_path, "r", encoding="utf-8", errors="ignore") as merged_index_file, \
+         open(output_path, "w", encoding="utf-8") as output_file:
         for line in merged_index_file:
             parts = line.strip().split(',')
             word = parts[0]
@@ -139,28 +140,63 @@ def generate_index():
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(blocks_dir, exist_ok=True)
 
-    token_stream = process_csv_file("./songs/songs_filter_16k.csv", output_dir)
+    # ✅ Process only first 5000 rows
+    MAX_ROWS = 5000
+    token_stream = process_csv_file("./data.csv", output_dir, max_rows=MAX_ROWS)
+
+    # Run SPIMI once
     spimi_invert(token_stream, blocks_dir)
 
+    # Create merged index
     create_merged_index(blocks_dir, f"{output_dir}/merged_index.txt")
-    create_merged_weighted_index(f"{output_dir}/merged_index.txt",
-                                 f"{output_dir}/filenames.json",
-                                 f"{output_dir}/merged_weighted_index.txt")
+
+    # Create weighted merged index
+    create_merged_weighted_index(
+        f"{output_dir}/merged_index.txt",
+        f"{output_dir}/filenames.json",
+        f"{output_dir}/merged_weighted_index.txt"
+    )
 
 
 if __name__ == "__main__":
-    # clear_folder("./test-blocks")
-
-    # spimi_invert(process_csv_file("./songs_filter_100.csv",
-    #                               "./"),
-    #              "./test-blocks")
-
-    # output_dir = "./index_output"
-    # blocks_dir = "./index_output/blocks"
-    #
-    # create_merged_weighted_index(f"{output_dir}/merged_index.txt",
-    #                              f"{output_dir}/filenames.json",
-    #                              f"{output_dir}/merged_weighted_index.txt")
-    #
-    # create_merged_index("./index_output/blocks", "./index_output/merged_index.txt")
+    # Step 1: Generate the index
     generate_index()
+
+    # Step 2: Evaluate retrieval metrics
+    from sklearn.metrics import precision_score, recall_score, f1_score
+    import numpy as np
+
+    # Example: Ground truth (replace with your real relevant document IDs)
+    ground_truth = {
+        "query1": [0, 2, 3],
+        "query2": [1, 4]
+    }
+
+    # Example: Retrieved docs (replace with top docs from weighted index)
+    retrieved_docs = {
+        "query1": [0, 1, 3],
+        "query2": [1, 2, 4]
+    }
+
+    def calculate_metrics(ground_truth, retrieved_docs):
+        precisions, recalls, f1s = [], [], []
+
+        for query in ground_truth.keys():
+            gt = ground_truth[query]
+            retrieved = retrieved_docs.get(query, [])
+
+            # Binary relevance vectors
+            all_docs = list(set(gt + retrieved))
+            y_true = [1 if doc in gt else 0 for doc in all_docs]
+            y_pred = [1 if doc in retrieved else 0 for doc in all_docs]
+
+            precisions.append(precision_score(y_true, y_pred))
+            recalls.append(recall_score(y_true, y_pred))
+            f1s.append(f1_score(y_true, y_pred))
+
+        print(f"Average Precision: {np.mean(precisions):.4f}")
+        print(f"Average Recall: {np.mean(recalls):.4f}")
+        print(f"Average F1-score: {np.mean(f1s):.4f}")
+
+    # Run evaluation
+    calculate_metrics(ground_truth, retrieved_docs)

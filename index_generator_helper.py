@@ -8,9 +8,6 @@ def parse_line(line):
         line = line[1:]
     parts = line.strip().split(',')
     word = parts[0]
-    # print(f"line -> {line}")
-    # print(f"parts -> {parts}")
-    # print(f"word -> {word}")
     postings = [(parts[i], int(parts[i + 1])) for i in range(1, len(parts), 2)]
     return word, postings
 
@@ -65,7 +62,8 @@ def get_total_size(obj, seen=None):
 
 
 def save_block(block_name, block_dict, blocks_dir):
-    with open(f"{blocks_dir}/{block_name}.txt", "w") as file:
+    # ✅ Added encoding="utf-8"
+    with open(f"{blocks_dir}/{block_name}.txt", "w", encoding="utf-8") as file:
         for key in block_dict:
             file.write(f"{key}")
             for elem in block_dict[key]:
@@ -76,8 +74,6 @@ def save_block(block_name, block_dict, blocks_dir):
 def sort_and_save_block(dictionary, block_counter, blocks_dir):
     sorted_dictionary = dict(sorted(dictionary.items()))
     save_block(f"block{block_counter}", sorted_dictionary, blocks_dir)
-    # print(block_counter, get_total_size(sorted_dictionary), sorted_dictionary)
-
     return sorted_dictionary
 
 

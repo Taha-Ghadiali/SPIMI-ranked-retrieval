@@ -4,84 +4,75 @@ import string
 import nltk
 import csv
 
-if not nltk.data.find('tokenizers/punkt'):
+# Increase CSV field size limit to handle large articles
+csv.field_size_limit(10 * 1024 * 1024)  # 10 MB
+
+# Safely check and download punkt if not available
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
     nltk.download('punkt')
 
+# Initialize tokenizer and stemmer
 tweet_tokenizer = nltk.TweetTokenizer()
 porter_stemmer = nltk.PorterStemmer()
 
 
 def tokenize_line(line):
-    # Design: Use TweetTokenizer so it doesn't separate contractions
-    # return tweet_tokenizer.tokenize(line)
-
-    # Otherwise, comment previous line and uncomment the next one
-    return nltk.word_tokenize(line)
+    """Tokenize a single line of text using TweetTokenizer."""
+    return tweet_tokenizer.tokenize(line)
 
 
 def normalize_tokens(tokens):
+    """Normalize tokens: remove punctuation, numbers, lowercase first token."""
     for i, token in enumerate(tokens):
-        # Design: Delete tokens that contains punctuation
         if token in string.punctuation:
             continue
-
-        # Design: Delete tokens that can be cast to a number
-        # if token.isnumeric():
-        #     continue
-
-        # Design: Delete tokens that contain numbers
         if any(char.isnumeric() for char in token):
             continue
-
-        # Design: Delete tokens without alphanumeric characters
         if not any(char.isalnum() for char in token):
             continue
-
-        # Design: Apply lowercase to the first token in each line
         yield token.lower() if i == 0 else token
 
 
 def stem_tokens(tokens):
+    """Apply Porter stemming to tokens."""
     for token in tokens:
         yield porter_stemmer.stem(token)
 
 
 def create_filenames_json(output_dir, filenames):
-    filenames_dict = {}
-
-    for i, filename in enumerate(filenames):
-        new_key = f"doc{i}"
-        filenames_dict[new_key] = filename
-
-    with open(output_dir + "/filenames.json", "w", encoding="utf-8") as file:
+    """Save mapping of 'doc{i}' -> filename or ID to JSON."""
+    filenames_dict = {f"doc{i}": filename for i, filename in enumerate(filenames)}
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, "filenames.json"), "w", encoding="utf-8") as file:
         json.dump(filenames_dict, file, indent=4)
 
 
-def process_csv_file(csv_path, filenames_json_output_dir):
+def process_csv_file(csv_path, filenames_json_output_dir, max_rows=None):
+    """
+    Process newspaper CSV, yield token-document ID pairs, and save filenames mapping.
+    Expects CSV with columns: id, title, content
+    """
     files_ids = []
 
-    print("DEBUG: Started yielding tokens")
+    print("DEBUG: Started yielding tokens from CSV")
 
-    with open(csv_path, "r") as file:
-        csv_reader = csv.reader(file)
-        next(csv_reader)
-
+    with open(csv_path, "r", encoding="utf-8") as file:
+        csv_reader = csv.DictReader(file)  # Use header names
         for i, row in enumerate(csv_reader):
+            # Stop after max_rows if specified
+            if max_rows is not None and i >= max_rows:
+                break
+
             if i % 100 == 0:
                 print(f"DEBUG: Yielding {i}th row")
 
-            if row:
-                new_file = {
-                    "id": row[0],
-                    "name": row[1],
-                    "artist": row[2],
-                    "album_name": row[4]
-                }
+            content = row.get("content", "")
+            if content.strip():
+                files_ids.append(row.get("title", f"doc_{i}"))
 
-                # file_id = row[0]
-                files_ids.append(new_file)
-
-                tokens = tokenize_line(','.join(row))
+                tokens = tokenize_line(content)
                 tokens = normalize_tokens(tokens)
                 tokens = stem_tokens(tokens)
 
@@ -90,39 +81,5 @@ def process_csv_file(csv_path, filenames_json_output_dir):
                         yield [word, len(files_ids) - 1]
 
     print("DEBUG: Finished yielding tokens")
-
     create_filenames_json(filenames_json_output_dir, files_ids)
-    print("DEBUG: Filenames json saved")
-
-
-def process_text_files(texts_dir, filenames_json_output_dir):
-    files_ids = []
-
-    print("DEBUG: Started yielding tokens")
-
-    for filename in os.listdir(texts_dir):
-        files_ids.append(filename)
-        file_path = os.path.join(texts_dir, filename)
-
-        with open(file_path, "r", encoding="utf-8") as file:
-            for line in file:
-                tokens = tokenize_line(line)
-                tokens = normalize_tokens(tokens)
-                tokens = stem_tokens(tokens)
-
-                for word in tokens:
-                    if word:
-                        yield [word, len(files_ids) - 1]
-
-    print("DEBUG: Finished yielding tokens")
-
-    create_filenames_json(filenames_json_output_dir, files_ids)
-    print("DEBUG: Filenames json saved")
-
-
-if __name__ == "__main__":
-    for elem in process_csv_file("./songs/spotify_songs_filtered_1k.csv", "./"):
-        pass
-
-    for elem in process_text_files("./books", "./"):
-        pass
+    print("DEBUG: Filenames JSON saved")
